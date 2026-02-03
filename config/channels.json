@@ -1,0 +1,10 @@
+{
+  "channels": [
+    {
+      "source_channel_id": "UCzUTXWM7RQZZCqzuJ9-T4tA",
+      "privacy_status": "public",
+      "max_new_per_run": 2,
+      "max_old_per_run": 1
+    }
+  ]
+}
