@@ -2,34 +2,40 @@ name: Auto YouTube Upload
 
 on:
   schedule:
-    - cron: "0 */3 * * *"
+    - cron: "0 */4 * * *" # Runs every 4 hours
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  run:
+  run_bot:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - uses: actions/setup-python@v5
-      with:
-        python-version: "3.11"
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
 
-    - run: pip install -r requirements.txt
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
 
-    - run: python main.py
-      env:
-        YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
-        YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
-        YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+      - name: Run Uploader
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+        run: python main.py
 
-    - run: |
-        git config user.name github-actions
-        git config user.email actions@github.com
-        git add state/*
-        git commit -m "update state" || true
-        git push
+      - name: Save State
+        if: always()
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add state/*
+          git commit -m "Update state logs [skip ci]" || echo "No changes"
+          git push
