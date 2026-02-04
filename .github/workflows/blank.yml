@@ -1,47 +1,49 @@
-name: Auto YouTube Upload
+name: YT-DLP Downloader
 
 on:
-  schedule:
-    - cron: "0 */4 * * *"
   workflow_dispatch:
-
-permissions:
-  contents: write
+    inputs:
+      video_url:
+        description: 'The URL of the video to download'
+        required: true
+      format:
+        description: 'Format (default: best video+audio)'
+        required: false
+        default: 'bestvideo+bestaudio/best'
 
 jobs:
-  run_bot:
+  download:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Setup Python
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11" # Upgraded version
+          python-version: '3.x'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20' # Provides the JS runtime yt-dlp needs
-
-      - name: Install Dependencies
-        run: pip install -r requirements.txt
-
-      - name: Create Cookies File
-        run: echo "${{ secrets.YT_COOKIES }}" > cookies.txt
-
-      - name: Run Uploader
-        env:
-          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
-          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
-          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
-        run: python main.py
-
-      - name: Save State
-        if: always()
+      - name: Install dependencies
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add state/*.json
-          git commit -m "Update state [skip ci]" || echo "No changes"
-          git push
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          pip install yt-dlp
+
+      - name: Download Video
+        run: |
+          mkdir downloads
+          # -o defines output location and filename template
+          # --merge-output-format mp4 ensures the final container is MP4 (if possible)
+          yt-dlp "${{ inputs.video_url }}" \
+            -f "${{ inputs.format }}" \
+            -o "downloads/%(title)s.%(ext)s" \
+            --merge-output-format mp4
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: downloaded-video
+          path: downloads/
+          retention-days: 1
