@@ -1,10 +1,13 @@
-name: YT-DLP Downloader
+name: YT-DLP (Paste Cookies)
 
 on:
   workflow_dispatch:
     inputs:
       video_url:
-        description: 'The URL of the video to download'
+        description: 'Video URL'
+        required: true
+      cookies_content:
+        description: 'Paste content of cookies.txt here'
         required: true
       format:
         description: 'Format'
@@ -27,32 +30,41 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          # Installing phantomjs or node generally fixes the JS Runtime warning
+          sudo apt-get install -y ffmpeg nodejs
           python -m pip install --upgrade pip
           pip install yt-dlp
 
-      - name: Create Cookie File
+      - name: Create and Fix Cookie File
         env:
-          COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+          RAW_COOKIES: ${{ inputs.cookies_content }}
         run: |
-          echo "$COOKIES" > cookies.txt
+          # 1. Write the input to a file
+          echo "$RAW_COOKIES" > cookies.txt
+          
+          # 2. Fix Windows line endings (CRLF to LF)
+          sed -i 's/\r$//' cookies.txt
+
+          # 3. Check if header exists, if not, add it (Fixes "not netscape file" error)
+          if ! grep -q "# Netscape" cookies.txt; then
+             echo "Header missing. Adding Netscape header..."
+             sed -i '1s/^/# Netscape HTTP Cookie File\n/' cookies.txt
+          fi
+
+          echo "Cookie file prepared."
 
       - name: Download Video
         run: |
           mkdir downloads
           
-          # We add --cookies, --user-agent, and --referer to bypass bot detection
           yt-dlp "${{ inputs.video_url }}" \
             -f "${{ inputs.format }}" \
             -o "downloads/%(title)s.%(ext)s" \
             --merge-output-format mp4 \
             --cookies cookies.txt \
-            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" \
-            --referer "https://www.youtube.com/"
+            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 
       - name: Cleanup Cookies
-        if: always()
+        if: always() # Runs even if download fails
         run: rm -f cookies.txt
 
       - name: Upload Artifact
