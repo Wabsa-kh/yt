@@ -41,20 +41,54 @@ def download_video(video_id):
     print(f"⬇️ Downloading video: {video_id}")
     if os.path.exists(VIDEO_FILE): os.remove(VIDEO_FILE)
 
-    # Use cookies if provided via GitHub Secrets
-    cookie_args = ["--cookies", "cookies.txt"] if os.path.exists("cookies.txt") else []
+    # --- ATTEMPT 1: YT-DLP WITH COOKIES ---
+    if os.path.exists("cookies.txt"):
+        print("🍪 Attempting download with cookies...")
+        try:
+            # We use a broader format selection to avoid "Format not available" errors
+            cmd = [
+                "yt-dlp",
+                "--cookies", "cookies.txt",
+                "-f", "bv+ba/b", # Download best available and merge
+                "--merge-output-format", "mp4",
+                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "-o", VIDEO_FILE,
+                f"https://www.youtube.com/watch?v={video_id}"
+            ]
+            subprocess.run(cmd, check=True)
+            if os.path.exists(VIDEO_FILE): 
+                print("✅ YT-DLP download success!")
+                return True
+        except Exception as e:
+            print(f"⚠️ YT-DLP failed: {e}")
 
-    cmd = [
-        "yt-dlp",
-        *cookie_args,
-        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "--merge-output-format", "mp4",
-        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "-o", VIDEO_FILE,
-        f"https://www.youtube.com/watch?v={video_id}"
-    ]
-    subprocess.run(cmd, check=True)
-
+    # --- ATTEMPT 2: COBALT FALLBACK (If YT-DLP is blocked) ---
+    print("📡 YT-DLP blocked. Trying Cobalt Fallback (No cookies needed)...")
+    # Using multiple instances in case one is down
+    instances = ["https://api.cobalt.tools", "https://cobalt.xy24.eu", "https://cobalt.kanzi.date"]
+    payload = {
+        "url": f"https://www.youtube.com/watch?v={video_id}",
+        "videoQuality": "1080",
+        "youtubeVideoCodec": "h264" # Ensures high quality mp4
+    }
+    
+    for base in instances:
+        try:
+            print(f"Trying Cobalt instance: {base}")
+            res = requests.post(base, json=payload, headers={"Accept": "application/json"}, timeout=20)
+            data = res.json()
+            if "url" in data:
+                with requests.get(data["url"], stream=True) as r:
+                    r.raise_for_status()
+                    with open(VIDEO_FILE, 'wb') as f:
+                        for chunk in r.iter_content(8192): f.write(chunk)
+                print("✅ Cobalt download success!")
+                return True
+        except Exception as e:
+            print(f"❌ Instance {base} failed: {e}")
+            continue
+        
+    raise Exception("🔥 CRITICAL: All download methods failed. YouTube is heavily blocking this IP.")
 def download_thumbnail(snippet):
     print("🖼️ Fetching thumbnail...")
     thumbs = snippet.get("thumbnails", {})
