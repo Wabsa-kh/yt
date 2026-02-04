@@ -7,7 +7,7 @@ on:
         description: 'The URL of the video to download'
         required: true
       format:
-        description: 'Format (default: best video+audio)'
+        description: 'Format'
         required: false
         default: 'bestvideo+bestaudio/best'
 
@@ -28,18 +28,32 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
+          # Installing phantomjs or node generally fixes the JS Runtime warning
           python -m pip install --upgrade pip
           pip install yt-dlp
+
+      - name: Create Cookie File
+        env:
+          COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+        run: |
+          echo "$COOKIES" > cookies.txt
 
       - name: Download Video
         run: |
           mkdir downloads
-          # -o defines output location and filename template
-          # --merge-output-format mp4 ensures the final container is MP4 (if possible)
+          
+          # We add --cookies, --user-agent, and --referer to bypass bot detection
           yt-dlp "${{ inputs.video_url }}" \
             -f "${{ inputs.format }}" \
             -o "downloads/%(title)s.%(ext)s" \
-            --merge-output-format mp4
+            --merge-output-format mp4 \
+            --cookies cookies.txt \
+            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" \
+            --referer "https://www.youtube.com/"
+
+      - name: Cleanup Cookies
+        if: always()
+        run: rm -f cookies.txt
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
