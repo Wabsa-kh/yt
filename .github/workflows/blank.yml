@@ -1,4 +1,4 @@
-name: YT-DLP Ultimate Fix
+name: YT-DLP (TV-Client Bypass)
 
 on:
   workflow_dispatch:
@@ -26,42 +26,42 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11' # Using 3.11 for better stability with yt-dlp
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
           python -m pip install --upgrade pip
-          # Force install the latest development version which has the newest bypasses
-          pip install https://github.com/yt-dlp/yt-dlp/archive/master.zip
+          # Use the nightly build of yt-dlp which has the newest bypasses
+          pip install --upgrade https://github.com/yt-dlp/yt-dlp/archive/master.zip
 
       - name: Create Cookie File
+        env:
+          COOKIE_DATA: ${{ inputs.cookies_content }}
         run: |
-          cat <<EOF > cookies.txt
-          ${{ inputs.cookies_content }}
-          EOF
+          # Use Python to write the file safely to avoid shell character issues
+          python3 -c "import os; open('cookies.txt', 'w', encoding='utf-8').write(os.environ['COOKIE_DATA'])"
           
-          # Force Netscape header and clean whitespace
-          sed -i 's/\r$//' cookies.txt
+          # Force the Netscape header if missing
           if ! grep -q "# Netscape" cookies.txt; then
-             echo -e "# Netscape HTTP Cookie File\n$(cat cookies.txt)" > cookies.txt
+             sed -i '1s/^/# Netscape HTTP Cookie File\n/' cookies.txt
           fi
 
       - name: Download Video
         run: |
           mkdir downloads
           
-          # 1. We force the use of the iOS client (ios is currently harder for YT to block)
-          # 2. We explicitly tell yt-dlp to use 'node' as the javascript runtime
-          # 3. We use a real iPhone User-Agent
+          # STRATEGY:
+          # 1. Force 'tv' and 'mweb' clients (they are less likely to trigger bot checks)
+          # 2. Skip 'web', 'ios', and 'android' players which are heavily guarded
+          # 3. Use node for JS execution
           
           yt-dlp "${{ inputs.video_url }}" \
             --verbose \
             --cookies cookies.txt \
             --js-runtimes node \
-            --extractor-args "youtube:player_client=ios,android;player_skip=web" \
-            --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1" \
+            --extractor-args "youtube:player_client=tv,mweb;player_skip=web,ios,android" \
             -f "bestvideo+bestaudio/best" \
             --merge-output-format mp4 \
             -o "downloads/%(title)s.%(ext)s"
