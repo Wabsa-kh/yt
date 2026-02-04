@@ -1,4 +1,4 @@
-name: YT-DLP (Paste Cookies)
+name: YT-DLP (Android Mode Fix)
 
 on:
   workflow_dispatch:
@@ -22,6 +22,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # FIX 1: Properly install Node.js (JavaScript Runtime)
+      # This fixes the "No supported JavaScript runtime" warning
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -30,41 +37,43 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg nodejs
+          sudo apt-get install -y ffmpeg
           python -m pip install --upgrade pip
-          pip install yt-dlp
+          # We install the master branch of yt-dlp to get the absolute latest fixes
+          pip install https://github.com/yt-dlp/yt-dlp/archive/master.zip
 
-      - name: Create and Fix Cookie File
+      - name: Create Cookie File
         env:
           RAW_COOKIES: ${{ inputs.cookies_content }}
         run: |
-          # 1. Write the input to a file
+          # Write cookies to file
           echo "$RAW_COOKIES" > cookies.txt
           
-          # 2. Fix Windows line endings (CRLF to LF)
+          # Fix line endings (Windows CRLF -> Linux LF)
           sed -i 's/\r$//' cookies.txt
 
-          # 3. Check if header exists, if not, add it (Fixes "not netscape file" error)
+          # Ensure Netscape Header exists
           if ! grep -q "# Netscape" cookies.txt; then
-             echo "Header missing. Adding Netscape header..."
              sed -i '1s/^/# Netscape HTTP Cookie File\n/' cookies.txt
           fi
-
-          echo "Cookie file prepared."
 
       - name: Download Video
         run: |
           mkdir downloads
           
+          # FIX 2: Use "android" player client to bypass "Sign in" check
+          # FIX 3: Add --verbose to see detailed errors if it fails
           yt-dlp "${{ inputs.video_url }}" \
+            --verbose \
             -f "${{ inputs.format }}" \
             -o "downloads/%(title)s.%(ext)s" \
             --merge-output-format mp4 \
             --cookies cookies.txt \
-            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            --extractor-args "youtube:player_client=android" \
+            --user-agent "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
       - name: Cleanup Cookies
-        if: always() # Runs even if download fails
+        if: always()
         run: rm -f cookies.txt
 
       - name: Upload Artifact
