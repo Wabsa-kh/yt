@@ -5,6 +5,9 @@ on:
     - cron: "0 */4 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   run_bot:
     runs-on: ubuntu-latest
@@ -14,7 +17,12 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11" # Upgraded version
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Provides the JS runtime yt-dlp needs
 
       - name: Install Dependencies
         run: pip install -r requirements.txt
@@ -32,8 +40,8 @@ jobs:
       - name: Save State
         if: always()
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add state/*
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/*.json
           git commit -m "Update state [skip ci]" || echo "No changes"
           git push
