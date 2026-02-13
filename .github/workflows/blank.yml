@@ -1,22 +1,41 @@
+name: YT-DLP Download with Tor
+# This allows you to run it manually from the "Actions" tab
+on: workflow_dispatch
+
 jobs:
-  download:
+  download-video:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # 1. Standard checkout (required)
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      # CORRECTED WARP ACTION (Use v1.4 or latest)
-      - name: Set up Cloudflare WARP
-        uses: fscarmen/warp-on-actions@v1.4
-        with:
-          stack: dual        # Uses both IPv4 and IPv6 (Best for bypass)
-          mode: client       # 'wireguard' was removed; use 'client'
+      # 2. Install Tor (The Proxy) directly from Ubuntu
+      # This is better than a custom Action because it won't vanish.
+      - name: Install and Start Tor
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tor
+          sudo service tor start
+          # Wait a few seconds for Tor to connect
+          sleep 10
 
+      # 3. Install yt-dlp
       - name: Install yt-dlp
-        run: pip install yt-dlp
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install yt-dlp
 
-      # IMPORTANT: You must tell yt-dlp to use the WARP proxy
+      # 4. Run the download using Tor Proxy (Port 9050)
+      # REPLACE THE URL BELOW WITH YOUR VIDEO LINK
       - name: Download Video
         run: |
-          # WARP Client mode usually opens port 40000 or 1080
-          # This action defaults to a SOCKS5 proxy on localhost:40000
-          yt-dlp --proxy "socks5://127.0.0.1:40000" "https://www.youtube.com/watch?v=n3-qSfoJ7IM"
+          yt-dlp --proxy "socks5://127.0.0.1:9050" -o "%(title)s.%(ext)s" "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+      # 5. Upload the video so you can download it from GitHub
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: downloaded-video
+          path: "*.webm" 
+          # Note: If your video downloads as .mp4 or .mkv, change the *.webm above
