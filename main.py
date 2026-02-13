@@ -9,18 +9,18 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# --- CONFIG & PATHS ---
+# --- CONSTANTS ---
 CONFIG_FILE = "config/channels.json"
 STATE_DIR = "state"
 VIDEO_FILE = "video.mp4"
 THUMB_FILE = "thumb.jpg"
 
-# --- HELPERS ---
-def load_json(path, default_val):
-    if not os.path.exists(path): return default_val
+# --- HELPER FUNCTIONS ---
+def load_json(path, default):
+    if not os.path.exists(path): return default
     try:
         with open(path, 'r') as f: return json.load(f)
-    except: return default_val
+    except: return default
 
 def save_json(path, data):
     if not os.path.exists(STATE_DIR): os.makedirs(STATE_DIR)
@@ -36,134 +36,71 @@ def get_yt_client():
     )
     return build("youtube", "v3", credentials=creds)
 
-# --- DOWNLOAD LOGIC ---
 def download_video(video_id):
-    print(f"⬇️ Downloading video: {video_id}")
+    print(f"🛡️ Downloading {video_id} via Tor Proxy...")
     if os.path.exists(VIDEO_FILE): os.remove(VIDEO_FILE)
-
-    # --- ATTEMPT 1: YT-DLP WITH COOKIES ---
-    if os.path.exists("cookies.txt"):
-        print("🍪 Attempting download with cookies...")
-        try:
-            # We use a broader format selection to avoid "Format not available" errors
-            cmd = [
-                "yt-dlp",
-                "--cookies", "cookies.txt",
-                "-f", "bv+ba/b", # Download best available and merge
-                "--merge-output-format", "mp4",
-                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                "-o", VIDEO_FILE,
-                f"https://www.youtube.com/watch?v={video_id}"
-            ]
-            subprocess.run(cmd, check=True)
-            if os.path.exists(VIDEO_FILE): 
-                print("✅ YT-DLP download success!")
-                return True
-        except Exception as e:
-            print(f"⚠️ YT-DLP failed: {e}")
-
-    # --- ATTEMPT 2: COBALT FALLBACK (If YT-DLP is blocked) ---
-    print("📡 YT-DLP blocked. Trying Cobalt Fallback (No cookies needed)...")
-    # Using multiple instances in case one is down
-    instances = ["https://api.cobalt.tools", "https://cobalt.xy24.eu", "https://cobalt.kanzi.date"]
-    payload = {
-        "url": f"https://www.youtube.com/watch?v={video_id}",
-        "videoQuality": "1080",
-        "youtubeVideoCodec": "h264" # Ensures high quality mp4
-    }
     
-    for base in instances:
-        try:
-            print(f"Trying Cobalt instance: {base}")
-            res = requests.post(base, json=payload, headers={"Accept": "application/json"}, timeout=20)
-            data = res.json()
-            if "url" in data:
-                with requests.get(data["url"], stream=True) as r:
-                    r.raise_for_status()
-                    with open(VIDEO_FILE, 'wb') as f:
-                        for chunk in r.iter_content(8192): f.write(chunk)
-                print("✅ Cobalt download success!")
-                return True
-        except Exception as e:
-            print(f"❌ Instance {base} failed: {e}")
-            continue
-        
-    raise Exception("🔥 CRITICAL: All download methods failed. YouTube is heavily blocking this IP.")
+    cookie_args = ["--cookies", "cookies.txt"] if os.path.exists("cookies.txt") else []
+    
+    cmd = [
+        "yt-dlp",
+        "--proxy", "socks5://127.0.0.1:9050",
+        *cookie_args,
+        "-f", "bv[ext=mp4]+ba[ext=m4a]/b[ext=mp4]",
+        "--merge-output-format", "mp4",
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "-o", VIDEO_FILE,
+        f"https://www.youtube.com/watch?v={video_id}"
+    ]
+    
+    try:
+        subprocess.run(cmd, check=True)
+        return os.path.exists(VIDEO_FILE)
+    except Exception as e:
+        print(f"⚠️ Tor download failed: {e}")
+        return False
+
 def download_thumbnail(snippet):
-    print("🖼️ Fetching thumbnail...")
     thumbs = snippet.get("thumbnails", {})
-    # Try to get the highest resolution possible
     url = (thumbs.get("maxres") or thumbs.get("high") or thumbs.get("default") or {}).get("url")
-    
     if not url: return False
-
     try:
         r = requests.get(url, timeout=15)
-        if r.status_code == 200:
-            with open(THUMB_FILE, "wb") as f:
-                f.write(r.content)
-            return True
-    except: pass
-    return False
+        with open(THUMB_FILE, "wb") as f: f.write(r.content)
+        return True
+    except: return False
 
-# --- UPLOAD LOGIC ---
 def upload_video(youtube, snippet, privacy):
-    print(f"⬆️ Uploading to YouTube: {snippet['title']}")
-    
+    print(f"⬆️ Uploading: {snippet['title']}")
     body = {
         "snippet": {
             "title": snippet["title"], 
             "description": snippet["description"],
             "tags": snippet.get("tags", []),
-            "categoryId": "22" # Default to 'People & Blogs'
+            "categoryId": "22"
         },
-        "status": {
-            "privacyStatus": privacy,
-            "selfDeclaredMadeForKids": False
-        }
+        "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": False}
     }
-
     media = MediaFileUpload(VIDEO_FILE, chunksize=-1, resumable=True)
     request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
-    response = request.execute()
-    return response["id"]
+    return request.execute()["id"]
 
-def set_thumbnail(youtube, video_id):
-    if not os.path.exists(THUMB_FILE): return
-    print("🎨 Applying thumbnail...")
-    try:
-        youtube.thumbnails().set(videoId=video_id, media_body=THUMB_FILE).execute()
-    except Exception as e:
-        print(f"⚠️ Thumbnail Error: {e}")
-
-# --- API LOGIC ---
 def fetch_videos(youtube, channel_id):
     try:
-        # Get the 'Uploads' playlist ID for the channel (More reliable than search)
         ch_req = youtube.channels().list(part="contentDetails", id=channel_id).execute()
-        if not ch_req.get("items"): return []
-        
         uploads_id = ch_req["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
-        
-        # Get latest 50 items from that playlist
         res = youtube.playlistItems().list(part="snippet", playlistId=uploads_id, maxResults=50).execute()
         
         vids = []
         for item in res.get("items", []):
-            video_id = item["snippet"]["resourceId"]["videoId"]
-            item["id"] = {"videoId": video_id} # Format to match script
+            vid = item["snippet"]["resourceId"]["videoId"]
+            item["id"] = {"videoId": vid}
             vids.append(item)
-        
-        print(f"📊 Found {len(vids)} videos on the source channel.")
         return vids
-    except Exception as e:
-        print(f"❌ API Error: {e}")
-        return []
+    except: return []
 
-# --- MAIN ENGINE ---
+# --- MAIN LOOP ---
 def main():
-    if not os.path.exists(STATE_DIR): os.makedirs(STATE_DIR)
-
     uploaded = load_json(f"{STATE_DIR}/uploaded.json", {})
     queues = load_json(f"{STATE_DIR}/queues.json", {})
     last_check = load_json(f"{STATE_DIR}/last_check.json", {})
@@ -179,73 +116,42 @@ def main():
         last_dt_str = last_check.get(src)
         last_dt = isoparse(last_dt_str) if last_dt_str else datetime.min.replace(tzinfo=timezone.utc)
 
-        print(f"🔍 Checking channel: {src}")
         videos = fetch_videos(youtube, src)
-        
-        if not videos:
-            print("⚠️ No videos found or API error.")
-            continue
-
         new_vids = []
         for v in videos:
             vid = v["id"]["videoId"]
             pub = isoparse(v["snippet"]["publishedAt"])
-            
             if vid in uploaded[src]: continue
-            
-            if pub > last_dt:
-                new_vids.append(v)
-            elif vid not in queues[src]:
-                queues[src].append(vid)
+            if pub > last_dt: new_vids.append(v)
+            elif vid not in queues[src]: queues[src].append(vid)
 
-        print(f"✨ New: {len(new_vids)} | In Queue: {len(queues[src])}")
-
-        # 1. Process NEW Videos
-        new_vids.reverse() # Upload oldest of the new first
-        count = 0
-        for v in new_vids:
-            if count >= ch.get("max_new_per_run", 1): break
-            vid = v["id"]["videoId"]
-            
-            try:
-                download_video(vid)
+        # Process ONE New
+        new_vids.reverse()
+        if new_vids:
+            v = new_vids[0]
+            if download_video(v["id"]["videoId"]):
                 download_thumbnail(v["snippet"])
                 new_id = upload_video(youtube, v["snippet"], ch["privacy_status"])
-                set_thumbnail(youtube, new_id)
-                uploaded[src].append(vid)
-                count += 1
-                time.sleep(10) # Prevent spam flags
-            except Exception as e:
-                print(f"❌ Error with {vid}: {e}")
+                youtube.thumbnails().set(videoId=new_id, media_body=THUMB_FILE).execute()
+                uploaded[src].append(v["id"]["videoId"])
 
-        # 2. Process OLD Videos from Queue
-        count = 0
-        while count < ch.get("max_old_per_run", 1) and queues[src]:
+        # Process ONE Old
+        if queues[src]:
             vid = queues[src].pop(0)
-            try:
-                # Need to fetch details since playlist snippet is limited
-                v_res = youtube.videos().list(part="snippet", id=vid).execute()
-                if not v_res["items"]: continue
-                snippet = v_res["items"][0]["snippet"]
+            details = youtube.videos().list(part="snippet", id=vid).execute()
+            if details["items"]:
+                snippet = details["items"][0]["snippet"]
+                if download_video(vid):
+                    download_thumbnail(snippet)
+                    new_id = upload_video(youtube, snippet, ch["privacy_status"])
+                    youtube.thumbnails().set(videoId=new_id, media_body=THUMB_FILE).execute()
+                    uploaded[src].append(vid)
 
-                download_video(vid)
-                download_thumbnail(snippet)
-                new_id = upload_video(youtube, snippet, ch["privacy_status"])
-                set_thumbnail(youtube, new_id)
-                uploaded[src].append(vid)
-                count += 1
-                time.sleep(10)
-            except Exception as e:
-                print(f"❌ Error with old video {vid}: {e}")
-
-        # Save timestamp for next run
         last_check[src] = datetime.now(timezone.utc).isoformat()
 
-    # Save State
     save_json(f"{STATE_DIR}/uploaded.json", uploaded)
     save_json(f"{STATE_DIR}/queues.json", queues)
     save_json(f"{STATE_DIR}/last_check.json", last_check)
-    print("✅ All tasks complete.")
 
 if __name__ == "__main__":
     main()
