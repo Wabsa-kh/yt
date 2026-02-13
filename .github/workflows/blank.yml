@@ -1,79 +1,22 @@
-name: YT-DLP (TV-Client Bypass)
-
-on:
-  workflow_dispatch:
-    inputs:
-      video_url:
-        description: 'Video URL'
-        required: true
-      cookies_content:
-        description: 'Paste content of cookies.txt'
-        required: true
-
 jobs:
   download:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      # CORRECTED WARP ACTION (Use v1.4 or latest)
+      - name: Set up Cloudflare WARP
+        uses: fscarmen/warp-on-actions@v1.4
         with:
-          node-version: '20'
+          stack: dual        # Uses both IPv4 and IPv6 (Best for bypass)
+          mode: client       # 'wireguard' was removed; use 'client'
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+      - name: Install yt-dlp
+        run: pip install yt-dlp
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          python -m pip install --upgrade pip
-          # Use the nightly build of yt-dlp which has the newest bypasses
-          pip install --upgrade https://github.com/yt-dlp/yt-dlp/archive/master.zip
-
-      - name: Create Cookie File
-        env:
-          COOKIE_DATA: ${{ inputs.cookies_content }}
-        run: |
-          # Use Python to write the file safely to avoid shell character issues
-          python3 -c "import os; open('cookies.txt', 'w', encoding='utf-8').write(os.environ['COOKIE_DATA'])"
-          
-          # Force the Netscape header if missing
-          if ! grep -q "# Netscape" cookies.txt; then
-             sed -i '1s/^/# Netscape HTTP Cookie File\n/' cookies.txt
-          fi
-
+      # IMPORTANT: You must tell yt-dlp to use the WARP proxy
       - name: Download Video
         run: |
-          mkdir downloads
-          
-          # STRATEGY:
-          # 1. Force 'tv' and 'mweb' clients (they are less likely to trigger bot checks)
-          # 2. Skip 'web', 'ios', and 'android' players which are heavily guarded
-          # 3. Use node for JS execution
-          
-          yt-dlp "${{ inputs.video_url }}" \
-            --verbose \
-            --cookies cookies.txt \
-            --js-runtimes node \
-            --extractor-args "youtube:player_client=tv,mweb;player_skip=web,ios,android" \
-            -f "bestvideo+bestaudio/best" \
-            --merge-output-format mp4 \
-            -o "downloads/%(title)s.%(ext)s"
-
-      - name: Upload Artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: video-output
-          path: downloads/
-          retention-days: 1
-
-      - name: Cleanup
-        if: always()
-        run: rm -f cookies.txt
+          # WARP Client mode usually opens port 40000 or 1080
+          # This action defaults to a SOCKS5 proxy on localhost:40000
+          yt-dlp --proxy "socks5://127.0.0.1:40000" "https://www.youtube.com/watch?v=n3-qSfoJ7IM"
