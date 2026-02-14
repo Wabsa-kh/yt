@@ -1,17 +1,19 @@
-name: Auto YouTube Upload (Tor Powered)
+name: YouTube Auto Uploader (Tor + Resumable)
 
 on:
-  
-  workflow_dispatch:      # Allows you to click "Run" manually
+  schedule:
+    - cron: "0 */4 * * *" # Runs every 4 hours
+  workflow_dispatch:      # Allows manual "Run Workflow" button
 
 permissions:
-  contents: write
+  contents: write         # Required to save state files back to repo
 
 jobs:
   run_bot:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -19,31 +21,42 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Tor and FFmpeg
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y tor ffmpeg
           sudo service tor start
-          sleep 10 # Wait for Tor to initialize its IP
+          # Wait for Tor to establish a circuit
+          sleep 10
 
-      - name: Install Dependencies
-        run: pip install -r requirements.txt
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install google-api-python-client google-auth yt-dlp requests python-dateutil
 
-      - name: Create Cookies File
+      - name: Setup YouTube Cookies
+        # Takes the secret and writes it to a file the script can read
         run: echo "${{ secrets.YT_COOKIES }}" > cookies.txt
 
-      - name: Run Uploader
+      - name: Run Automation Script
         env:
+          # Map your GitHub Secrets to Environment Variables
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          SOURCE_CHANNEL_ID: ${{ secrets.SOURCE_CHANNEL_ID }}
         run: python main.py
 
-      - name: Save State
-        if: always()
+      - name: Commit and Push State Changes
+        if: always() # Run even if the script fails, to save progress
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Only add state files, avoid adding sensitive cookies or video files
           git add state/*.json
-          git commit -m "Update state logs [skip ci]" || echo "No changes"
+          
+          # Commit only if there are changes to avoid erroring out
+          git commit -m "chore: update upload state [skip ci]" || echo "No changes to commit"
+          
           git push
