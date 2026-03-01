@@ -1,7 +1,7 @@
 name: Simple YouTube Downloader
 
 on:
-  workflow_dispatch: # This allows you to click a button to run the action
+  workflow_dispatch: 
 
 jobs:
   download_test:
@@ -16,18 +16,14 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install FFmpeg (Required for combining video/audio)
+      - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install ffmpeg -y
 
       - name: Install yt-dlp
         run: pip install yt-dlp
 
-      - name: Reconstruct Cookies
-        env:
-          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
-        run: |
-          # Decodes the Base64 string safely back into the cookies.txt file
-          echo "$YOUTUBE_COOKIES" | base64 --decode > cookies.txt
+      # The checkout step above already brings cookies.txt into the runner,
+      # so we don't need any decoding steps here anymore!
 
       - name: Run Downloader
         run: python downloader.py
@@ -37,4 +33,4 @@ jobs:
         with:
           name: my-downloaded-video
           path: downloaded_video.mp4
-          retention-days: 1 # Keeps the file on GitHub for 1 day
+          retention-days: 1
