@@ -4,10 +4,11 @@ import os
 def download_video(url):
     print(f"Starting download for: {url}")
     
-    ydl_opts = {
-        'cookiefile': 'cookies.txt', # This uses the cookies we decode in GitHub
+ydl_opts = {
+        'cookiefile': 'cookies.txt', 
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
-        'outtmpl': 'downloaded_video.%(ext)s', # Saves file as 'downloaded_video.mp4'
+        'outtmpl': 'downloaded_video.%(ext)s', 
+    }
     }
 
     try:
