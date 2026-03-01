@@ -7,12 +7,16 @@ url = "https://www.youtube.com/watch?v=dKGIw93XTJ0"
 print(f"Starting download for: {url}")
 
 opts = {
+    # 1. Put cookies back to bypass the "Sign in / Bot" block
+    'cookiefile': 'cookies.txt',
+    
     'format': 'bestvideo+bestaudio/best',
     
-    # Pretend to be an Android app (This ONLY works if cookies are NOT used)
+    # 2. Use 'tv' and 'mweb' clients. 
+    # They support cookies AND bypass the "SABR" unreadable stream block!
     'extractor_args': {
         'youtube': {
-            'player_client': ['android', 'ios']
+            'player_client': ['tv', 'mweb']
         }
     },
     
