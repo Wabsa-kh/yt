@@ -1,15 +1,27 @@
 import yt_dlp
 
 # --- CONFIGURATION ---
-url = "https://www.youtube.com/watch?v=dKGIw93XTJ0"
+# Let's use a very standard video for testing first
+url = "https://www.youtube.com/watch?v=BaW_jenozKc" 
 # ---------------------
 
 print(f"Starting download for: {url}")
 
-# Define options dictionary
 opts = {
     'cookiefile': 'cookies.txt',
-    'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
+    
+    # FIX 1: Don't force MP4 immediately. Get whatever is best (WebM/MKV), 
+    # we can convert it later if needed.
+    'format': 'bestvideo+bestaudio/best',
+    
+    # FIX 2: THE ANDROID TRICK
+    # This tells YouTube we are an app, bypassing the "SABR" block.
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['android', 'ios']
+        }
+    },
+    
     'outtmpl': 'downloaded_video.%(ext)s',
     'verbose': True
 }
