@@ -4,10 +4,10 @@ import os
 def download_video(url):
     print(f"Starting download for: {url}")
     
-ydl_opts = {
-        'cookiefile': 'cookies.txt', 
+    ydl_opts = {
+        'cookiefile': 'cookies.txt',
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
-        'outtmpl': 'downloaded_video.%(ext)s', 
+        'outtmpl': 'downloaded_video.%(ext)s',
     }
 
     try:
@@ -19,5 +19,5 @@ ydl_opts = {
 
 if __name__ == "__main__":
     # Test URL - replace with any video you want to test
-    target_url = "https://www.youtube.com/watch?v=dKGIw93XTJ0" 
+    target_url = "https://www.youtube.com/watch?v=jNQXAC9IVRw" 
     download_video(target_url)
