@@ -7,10 +7,9 @@ url = "https://www.youtube.com/watch?v=dKGIw93XTJ0"
 print(f"Starting download for: {url}")
 
 opts = {
-    # NO COOKIES: This allows the Android client to activate and bypass the block!
     'format': 'bestvideo+bestaudio/best',
     
-    # Pretend to be an Android app
+    # Pretend to be an Android app (This ONLY works if cookies are NOT used)
     'extractor_args': {
         'youtube': {
             'player_client': ['android', 'ios']
