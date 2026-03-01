@@ -7,13 +7,15 @@ url = "https://www.youtube.com/watch?v=dKGIw93XTJ0"
 print(f"Starting download for: {url}")
 
 opts = {
+    # 1. Use cookies to bypass the "Sign in" bot block
     'cookiefile': 'cookies.txt',
+    
     'format': 'bestvideo+bestaudio/best',
     
-    # Drop 'mweb', use 'tv' and 'web_safari'
+    # 2. FORCE the 'tv' client only. Do NOT use web browsers.
     'extractor_args': {
         'youtube': {
-            'player_client': ['tv', 'web_safari']
+            'player_client':['tv']
         }
     },
     
