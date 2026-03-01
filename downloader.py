@@ -9,7 +9,6 @@ ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
         'outtmpl': 'downloaded_video.%(ext)s', 
     }
-    }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
