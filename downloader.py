@@ -2,7 +2,7 @@ import yt_dlp
 
 # --- CONFIGURATION ---
 # Let's use a very standard video for testing first
-url = "https://www.youtube.com/watch?v=BaW_jenozKc" 
+url = "https://www.youtube.com/watch?v=dKGIw93XTJ0" 
 # ---------------------
 
 print(f"Starting download for: {url}")
