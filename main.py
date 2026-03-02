@@ -34,12 +34,9 @@ def save_json(filepath, data):
         json.dump(data, f, indent=2)
 
 # ==========================================
-# 1. PER-CHANNEL SCANNER (FIXED ORDER)
+# 1. PER-CHANNEL SCANNER (UNLIMITED)
 # ==========================================
 def update_channel_queues(channels, uploaded_ids, all_queues):
-    """
-    Scans channels and adds videos to queue while PRESERVING Newest-First order.
-    """
     for channel in channels:
         ydl_opts = {
             'extract_flat': True,
@@ -51,16 +48,20 @@ def update_channel_queues(channels, uploaded_ids, all_queues):
         # Initialize list for this channel if missing
         if channel not in all_queues:
             all_queues[channel] = []
-            print(f"\n🚨 NEW CHANNEL: {channel} -> Scanning Full History...")
+            print(f"\n🚨 NEW CHANNEL FOUND: {channel}")
+            print("   -> Scanning ENTIRE channel history (No Limit)...")
+            # We removed the 'playlistend' limit here. It gets EVERYTHING.
         else:
-            print(f"\n⚡ KNOWN CHANNEL: {channel} -> Scanning Newest 15...")
-            ydl_opts['playlistend'] = 15
+            print(f"\n⚡ KNOWN CHANNEL: {channel}")
+            print("   -> Checking for new updates (Top 15)...")
+            ydl_opts['playlistend'] = 15 # Keep this small just for speed on existing channels
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(channel, download=False)
                 if 'entries' in info:
-                    entries = list(info['entries']) # yt-dlp returns [Newest, ..., Oldest]
+                    # yt-dlp returns entries as [Newest, ..., Oldest]
+                    entries = list(info['entries']) 
                     
                     fresh_videos_for_this_run = []
                     
@@ -69,18 +70,15 @@ def update_channel_queues(channels, uploaded_ids, all_queues):
                         vid_url = entry.get('url') or f"https://www.youtube.com/watch?v={vid_id}"
                         
                         # Check global uploaded list AND specific channel queue
-                        # AND make sure we didn't just add it in this loop
                         if vid_id and vid_id not in uploaded_ids and vid_url not in all_queues[channel]:
                             fresh_videos_for_this_run.append(vid_url)
                     
                     if fresh_videos_for_this_run:
-                        # CRITICAL FIX:
-                        # We append the FRESH (Newest-to-Oldest) list to the FRONT of the existing queue.
-                        # This ensures the absolute newest video is always at index 0.
+                        # Add the whole chunk [Newest...Oldest] to the FRONT
                         all_queues[channel] = fresh_videos_for_this_run + all_queues[channel]
-                        print(f"   -> Added {len(fresh_videos_for_this_run)} new videos to {channel}'s queue.")
+                        print(f"   -> Added {len(fresh_videos_for_this_run)} videos to queue.")
                     else:
-                        print(f"   -> No new videos found for {channel}.")
+                        print(f"   -> No new videos found.")
 
         except Exception as e:
             print(f"   ❌ Error scanning {channel}: {e}")
@@ -91,22 +89,20 @@ def update_channel_queues(channels, uploaded_ids, all_queues):
 # 2. ROUND-ROBIN SELECTOR
 # ==========================================
 def get_next_video(channels, all_queues, last_index):
-    """
-    Finds the next channel that has videos, starting after the last one we used.
-    Returns: (video_url, channel_url, new_index)
-    """
     total_channels = len(channels)
     if total_channels == 0: return None, None, last_index
 
+    # Start checking the NEXT channel in line
     start_index = (last_index + 1) % total_channels
     
     for i in range(total_channels):
         current_index = (start_index + i) % total_channels
         channel_url = channels[current_index]
         
+        # Check if this channel exists in our JSON and has videos waiting
         if channel_url in all_queues and len(all_queues[channel_url]) > 0:
-            video_url = all_queues[channel_url][0] # Index 0 is now GUARANTEED to be the Newest
-            print(f"\n🎯 ROUND-ROBIN: It is {channel_url}'s turn!")
+            video_url = all_queues[channel_url][0] # Grab the first one (Newest)
+            print(f"\n🎯 ROUND-ROBIN: Picking from {channel_url}")
             return video_url, channel_url, current_index
 
     return None, None, last_index
@@ -194,7 +190,7 @@ if __name__ == "__main__":
         print("Config file is empty.")
         exit(0)
 
-    # 1. Update Queues for ALL channels (Fix applied here)
+    # 1. Update Queues (Correct Order)
     all_queues = update_channel_queues(channels, uploaded_ids, all_queues)
     save_json(QUEUES_FILE, all_queues)
 
@@ -212,7 +208,7 @@ if __name__ == "__main__":
         success = attempt_upload(vid_file, thumb_file, title, desc)
         
         if success:
-            all_queues[channel_owner].pop(0) # Removes the video we just uploaded
+            all_queues[channel_owner].pop(0) # Removes the video we just uploaded (The Newest one)
             uploaded_ids.append(original_id)
             state['last_index'] = new_index
 
