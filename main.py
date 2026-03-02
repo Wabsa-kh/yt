@@ -9,30 +9,25 @@ from googleapiclient.errors import HttpError
 CONFIG_FILE = "config.txt"
 QUEUE_FILE = "queue.txt"
 UPLOADED_FILE = "uploaded.txt"
-SCANNED_CHANNELS_FILE = "scanned_channels.txt" # NEW REGISTRY FILE
+SCANNED_CHANNELS_FILE = "scanned_channels.txt"
 COOKIES_FILE = "cookies.txt"
 
 def load_text_list(filepath):
-    """Loads a text file into a list of strings."""
     if not os.path.exists(filepath):
-        return[]
+        return []
     with open(filepath, "r", encoding="utf-8") as f:
         return [line.strip() for line in f if line.strip()]
 
 def save_text_list(filepath, data_list):
-    """Saves a list of strings to a text file."""
     with open(filepath, "w", encoding="utf-8") as f:
         for item in data_list:
             f.write(f"{item}\n")
 
 # ==========================================
-# 1. SMART SCANNER (WITH CHANNEL REGISTRY)
+# 1. SMART SCANNER (LATEST TO OLDEST)
 # ==========================================
 def scan_channels_for_new_videos(channels, uploaded_ids, current_queue, scanned_channels):
-    """
-    Checks the registry. Deep scans NEW channels, fast scans KNOWN channels.
-    """
-    new_videos =[]
+    new_videos = []
     updated_scanned_channels = list(scanned_channels)
 
     for channel in channels:
@@ -43,11 +38,11 @@ def scan_channels_for_new_videos(channels, uploaded_ids, current_queue, scanned_
             'extractor_args': {'youtube': {'player_client': ['tv']}}
         }
         
-        # CHECK THE REGISTRY!
+        # CHECK THE REGISTRY
         if channel not in scanned_channels:
             print(f"\n🚨 NEW CHANNEL DETECTED: {channel}")
-            print("Scanning entire channel history... (This may take a minute)")
-            updated_scanned_channels.append(channel) # Add to memory so we don't deep-scan it again
+            print("Scanning channel history (Latest to Oldest)...")
+            updated_scanned_channels.append(channel)
         else:
             print(f"\n⚡ Known channel: {channel}. Scanning the 15 newest videos...")
             ydl_opts['playlistend'] = 15 
@@ -58,16 +53,22 @@ def scan_channels_for_new_videos(channels, uploaded_ids, current_queue, scanned_
                 
                 if 'entries' in info:
                     entries = list(info['entries'])
-                    entries.reverse() # Put oldest of the newly found videos first
+                    
+                    # --- CRITICAL CHANGE HERE ---
+                    # We REMOVED entries.reverse(). 
+                    # YouTube sends data as [Newest, ..., Oldest].
+                    # By keeping it as is, we process the Newest video first!
                     
                     for entry in entries:
                         vid_id = entry.get('id')
                         vid_url = entry.get('url') or f"https://www.youtube.com/watch?v={vid_id}"
                         
-                        # Make sure we don't duplicate it in the new_videos list either
+                        # Add if not uploaded and not already in queue
                         if vid_id and vid_id not in uploaded_ids and vid_url not in current_queue and vid_url not in new_videos:
-                            print(f"✨ Found new video: {vid_id}")
+                            # We append to the list. Since 'entries' is Newest->Oldest,
+                            # new_videos[0] will be the absolute newest video.
                             new_videos.append(vid_url)
+                            
         except Exception as e:
             print(f"Error scanning {channel}: {e}")
             
@@ -84,7 +85,7 @@ def download_video(url):
         'extractor_args': {'youtube': {'player_client': ['tv']}},
         'outtmpl': 'downloaded_video.%(ext)s',
         'writethumbnail': True,
-        'postprocessors':[{'key': 'FFmpegThumbnailsConvertor', 'format': 'jpg'}],
+        'postprocessors': [{'key': 'FFmpegThumbnailsConvertor', 'format': 'jpg'}],
         'quiet': False
     }
 
@@ -112,7 +113,7 @@ def get_auth_service(client_id, client_secret, refresh_token):
     return build('youtube', 'v3', credentials=creds)
 
 def attempt_upload(video_file, thumb_file, title, description):
-    api_accounts =[
+    api_accounts = [
         {'id': os.environ.get('C1_CLIENT_ID'), 'sec': os.environ.get('C1_CLIENT_SECRET'), 'tok': os.environ.get('C1_REFRESH_TOKEN'), 'name': 'C1'},
         {'id': os.environ.get('C2_CLIENT_ID'), 'sec': os.environ.get('C2_CLIENT_SECRET'), 'tok': os.environ.get('C2_REFRESH_TOKEN'), 'name': 'C2'},
         {'id': os.environ.get('C3_CLIENT_ID'), 'sec': os.environ.get('C3_CLIENT_SECRET'), 'tok': os.environ.get('C3_REFRESH_TOKEN'), 'name': 'C3'}
@@ -146,7 +147,7 @@ def attempt_upload(video_file, thumb_file, title, description):
                     youtube.thumbnails().set(videoId=new_video_id, media_body=MediaFileUpload(thumb_file)).execute()
                     print("✅ Thumbnail Uploaded!")
                 except Exception:
-                    print("⚠️ Thumbnail failed (Account might need phone verification).")
+                    print("⚠️ Thumbnail failed.")
                     
             return True 
 
@@ -180,23 +181,25 @@ if __name__ == "__main__":
     scanned_channels = load_text_list(SCANNED_CHANNELS_FILE)
 
     if not channels:
-        print("Config file is empty. Add channel URLs to config.txt.")
+        print("Config file is empty.")
         exit(0)
 
-    # 1. Find new videos & update the channel registry
+    # 1. Find new videos
     new_vids, updated_scanned_channels = scan_channels_for_new_videos(channels, uploaded_ids, queue, scanned_channels)
     
-    # Save the updated registry immediately
     save_text_list(SCANNED_CHANNELS_FILE, updated_scanned_channels)
 
     if new_vids:
         print(f"\nAdding {len(new_vids)} new videos to the front of the queue.")
+        # IMPORTANT: 'new_vids' contains [Newest, 2nd Newest, ...].
+        # We put them at the start of the queue.
+        # So queue[0] becomes the absolute newest video.
         queue = new_vids + queue 
         save_text_list(QUEUE_FILE, queue)
 
     # 2. Process the Queue
     if not queue:
-        print("\nQueue is empty. Nothing to do! See you in 4 hours.")
+        print("\nQueue is empty.")
         exit(0)
 
     target_video_url = queue[0] 
@@ -207,16 +210,14 @@ if __name__ == "__main__":
         success = attempt_upload(vid_file, thumb_file, title, desc)
         
         if success:
-            # 3. Cleanup! 
             queue.pop(0)
             uploaded_ids.append(original_id)
-            
             save_text_list(QUEUE_FILE, queue)
             save_text_list(UPLOADED_FILE, uploaded_ids)
             print(f"\n🎉 SYSTEM FINISHED! Video {original_id} marked as uploaded.")
         else:
-            print("\n❌ Upload failed. Video will remain at the top of the queue for the next run.")
+            print("\n❌ Upload failed. Video remains in queue.")
     else:
-        print("\n❌ Download failed. Removing from queue so we don't get stuck.")
+        print("\n❌ Download failed. Removed from queue.")
         queue.pop(0)
         save_text_list(QUEUE_FILE, queue)
