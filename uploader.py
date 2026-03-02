@@ -78,7 +78,7 @@ if __name__ == "__main__":
     
     if youtube_service:
         target_video = "video.mp4"
-        target_thumbnail = "image.jpg"
+        target_thumbnail = "Image.jpg"
         
         if os.path.exists(target_video):
             # 1. Upload the Video
