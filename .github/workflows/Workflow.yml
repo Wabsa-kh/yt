@@ -43,6 +43,7 @@ jobs:
 
       # 4. Run the Master Script with 3-Account Rotation
       - name: Run Autocloner
+      
         env:
           # Account 1
           C1_CLIENT_ID: ${{ secrets.C1_CLIENT_ID }}
@@ -59,27 +60,22 @@ jobs:
           C3_CLIENT_SECRET: ${{ secrets.C3_CLIENT_SECRET }}
           C3_REFRESH_TOKEN: ${{ secrets.C3_REFRESH_TOKEN }}
         run: python main.py
-
-      # 5. Save the Memory (Queue & History)
+        
       - name: Save memory (Commit changes back to GitHub)
         run: |
           git config --global user.name "CloneBot-9000"
           git config --global user.email "bot@github.actions"
           
-          # 1. Stage only the memory files
-          git add queue.txt uploaded.txt scanned_channels.txt
+          # 1. Stage the new JSON files
+          git add queues.json state.json uploaded.txt
           
           # 2. Check if there are changes to save
           if git diff --staged --quiet; then
             echo "No changes to save."
           else
-            # 3. Commit the memory files
-            git commit -m "🤖 Auto-updated queue, uploaded, and registry logs"
-            
-            # 4. CRITICAL FIX: Delete the video files and cache so git pull works
+            git commit -m "🤖 Auto-updated queues and round-robin state"
             git reset --hard
-            
-            # 5. Pull latest changes (rebase to avoid merge commits) and push
             git pull --rebase origin main
             git push
-          fi
+          fi  
+
