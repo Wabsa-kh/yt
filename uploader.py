@@ -5,17 +5,17 @@ from googleapiclient.http import MediaFileUpload
 
 def get_authenticated_service():
     """Builds YouTube credentials directly from GitHub Secrets."""
-    client_id = os.environ.get('CLIENT_ID')
-    client_secret = os.environ.get('CLIENT_SECRET')
-    refresh_token = os.environ.get('REFRESH_TOKEN')
+    client_id = os.environ.get('YT_CLIENT_ID')
+    client_secret = os.environ.get('YT_CLIENT_SECRET')
+    refresh_token = os.environ.get('YT_REFRESH_TOKEN')
 
     if not all([client_id, client_secret, refresh_token]):
-        print("Error: Missing one or more API secrets in environment variables!")
+        print("Error: Missing one or more YT_ secrets in environment variables!")
         return None
 
     # Construct the credentials object directly
     creds = Credentials(
-        token=None, # We leave this None so it forces the refresh token to get a new access token
+        token=None, 
         refresh_token=refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=client_id,
@@ -39,7 +39,7 @@ def upload_video(youtube, video_file, title, description):
             'categoryId': '22' # 22 = People & Blogs
         },
         'status': {
-            'privacyStatus': 'private' # Must be private for unverified apps
+            'privacyStatus': 'private' # Keeps it private during testing
         }
     }
     
@@ -65,22 +65,16 @@ if __name__ == "__main__":
     youtube_service = get_authenticated_service()
     
     if youtube_service:
-        # We assume 'downloaded_video.mp4' or similar was created by yt-dlp.
-        # Check what extension yt-dlp actually saved.
-        # If yt-dlp saved it as .webm or .mkv, change this filename accordingly!
+        # Look specifically for the file you uploaded to the repo
+        target_video = "video.mp4"
         
-        # A simple trick to find the downloaded video file automatically:
-        downloaded_files =[f for f in os.listdir('.') if f.startswith('downloaded_video')]
-        
-        if downloaded_files:
-            video_file_name = downloaded_files[0]
-            print(f"Found video to upload: {video_file_name}")
-            
+        if os.path.exists(target_video):
+            print(f"Found video to upload: {target_video}")
             upload_video(
                 youtube_service, 
-                video_file=video_file_name, 
-                title="Automated Video Upload", 
-                description="This video was downloaded and uploaded entirely via GitHub Actions!"
+                video_file=target_video, 
+                title="GitHub Action API Test", 
+                description="This video was uploaded directly from my GitHub repository using the YouTube API!"
             )
         else:
-            print("No downloaded video found to upload.")
+            print(f"Error: Could not find '{target_video}'. Did you upload it to the repository?")
