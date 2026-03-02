@@ -1,45 +1,42 @@
 name: Autonomous Clone Bot
 
 on:
-  workflow_dispatch: # Allows you to click the "Run workflow" button manually
+  workflow_dispatch: # Allows manual testing
   schedule:
-    - cron: '0 */4 * * *' # Runs automatically every 4 hours
+    - cron: '0 */4 * * *' # Runs every 4 hours
 
-# Prevents two bots from accidentally running at the exact same time
 concurrency: 
   group: yt-uploader
-  cancel-in-progress: false
+  cancel-in-progress: false # Waits for the previous upload to finish before starting a new one
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # CRITICAL: Allows the bot to save files back to GitHub!
+      contents: write # ⚠️ CRITICAL: Allows the bot to push commits back to the repo
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetches full history so git push works smoothly
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      # 1. Install Deno (Required to solve YouTube's anti-bot JS puzzles)
       - name: Install Deno
         run: |
           curl -fsSL https://deno.land/x/install/install.sh | sh
           echo "$HOME/.deno/bin" >> $GITHUB_PATH
 
-      # 2. Install FFmpeg (Required for 1080p video/audio merging and thumbnails)
       - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-      # 3. Install Python Libraries
       - name: Install Python Dependencies
         run: pip install yt-dlp yt-dlp-ejs google-api-python-client google-auth-oauthlib google-auth-httplib2
 
-      # 4. Run the Master Script with API Rotation
       - name: Run Autocloner
         env:
           C1_CLIENT_ID: ${{ secrets.C1_CLIENT_ID }}
@@ -55,15 +52,13 @@ jobs:
           C3_REFRESH_TOKEN: ${{ secrets.C3_REFRESH_TOKEN }}
         run: python main.py
 
-      # 5. Save the Brain (Commit queue and uploaded history back to repo)
       - name: Save memory (Commit changes back to GitHub)
         run: |
           git config --global user.name "CloneBot-9000"
           git config --global user.email "bot@github.actions"
           
-          # Add the text files to be tracked
-          git add queue.txt uploaded.txt
+          # Add all the memory files
+          git add queue.txt uploaded.txt scanned_channels.txt
           
-          # Check if the files actually changed. If yes, commit and push!
-          # We use "pull --rebase" just in case you manually edited the files while the bot was running.
-          git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Auto-updated queue and uploaded logs" && git pull --rebase && git push)
+          # If changes exist, commit and push them
+          git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Auto-updated queue, uploaded, and registry logs" && git pull --rebase && git push)
