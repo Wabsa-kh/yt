@@ -1,0 +1,29 @@
+name: YouTube API Upload Test
+
+on:
+  workflow_dispatch: 
+
+jobs:
+  test_upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      # We ONLY need the Google API libraries for this test
+      - name: Install Google API Dependencies
+        run: pip install google-api-python-client google-auth-oauthlib google-auth-httplib2
+
+      # Run the uploader with your secrets
+      - name: Run Uploader
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+        run: python uploader.py
