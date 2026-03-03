@@ -43,22 +43,22 @@ jobs:
 
       # 4. Run the Master Script with 3-Account Rotation
       - name: Run Autocloner
-      
         env:
-          # Account 1
           C1_CLIENT_ID: ${{ secrets.C1_CLIENT_ID }}
           C1_CLIENT_SECRET: ${{ secrets.C1_CLIENT_SECRET }}
           C1_REFRESH_TOKEN: ${{ secrets.C1_REFRESH_TOKEN }}
           
-          # Account 2
           C2_CLIENT_ID: ${{ secrets.C2_CLIENT_ID }}
           C2_CLIENT_SECRET: ${{ secrets.C2_CLIENT_SECRET }}
           C2_REFRESH_TOKEN: ${{ secrets.C2_REFRESH_TOKEN }}
           
-          # Account 3
           C3_CLIENT_ID: ${{ secrets.C3_CLIENT_ID }}
           C3_CLIENT_SECRET: ${{ secrets.C3_CLIENT_SECRET }}
           C3_REFRESH_TOKEN: ${{ secrets.C3_REFRESH_TOKEN }}
+          
+          # 🧪 SET THIS TO TEST C2 OR C3
+          # Leave it blank '' to run normally (C1 -> C2 -> C3)
+          FORCE_ACCOUNT: 'C2'
         run: python main.py
         
       - name: Save memory (Commit changes back to GitHub)
