@@ -58,7 +58,7 @@ jobs:
           
           # 🧪 SET THIS TO TEST C2 OR C3
           # Leave it blank '' to run normally (C1 -> C2 -> C3)
-          FORCE_ACCOUNT: 'C2'
+          FORCE_ACCOUNT: ''
         run: python main.py
         
       - name: Save memory (Commit changes back to GitHub)
