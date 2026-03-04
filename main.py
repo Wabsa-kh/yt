@@ -52,7 +52,7 @@ def attempt_upload(video_file, thumb_file, title, description):
         accounts_to_try = [acc for acc in api_accounts if acc['id'] and acc['sec'] and acc['tok']]
 
     request_body = {
-        'snippet': {'title': title[:100], 'description': description[:5000], 'categoryId': '22'},
+        'snippet': {'title': title[:100], 'description': description[:5000], 'categoryId': '24'},
         'status': {'privacyStatus': 'public'}
     }
 
