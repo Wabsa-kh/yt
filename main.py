@@ -98,7 +98,7 @@ def attempt_upload(video_file, thumb_file, title, description):
         {'id': os.environ.get('C2_CLIENT_ID'), 'sec': os.environ.get('C2_CLIENT_SECRET'), 'tok': os.environ.get('C2_REFRESH_TOKEN'), 'name': 'C2'},
         {'id': os.environ.get('C3_CLIENT_ID'), 'sec': os.environ.get('C3_CLIENT_SECRET'), 'tok': os.environ.get('C3_REFRESH_TOKEN'), 'name': 'C3'}
     ]
-    request_body = {'snippet': {'title': title[:100], 'description': description[:5000], 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
+    request_body = {'snippet': {'title': title[:100], 'description': description[:5000], 'categoryId': '24'}, 'status': {'privacyStatus': 'public'}}
 
     for account in api_accounts:
         if not account['id']: continue
