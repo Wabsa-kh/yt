@@ -1,11 +1,10 @@
 name: Autonomous Clone Bot
 
 on:
-  workflow_dispatch: # Manual trigger
+  workflow_dispatch:
   schedule:
-    - cron: '0 */4 * * *' # Runs every 4 hours
+    - cron: '0 */4 * * *'
 
-# Prevents two bots from running at the same time
 concurrency: 
   group: yt-uploader
   cancel-in-progress: false
@@ -14,68 +13,47 @@ jobs:
   run-bot:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # ⚠️ CRITICAL: Allows the bot to save files back to the repo
+      contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Get full history for smooth git syncing
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      # 1. Install Deno (Required for YouTube's anti-bot JS puzzles)
       - name: Install Deno
         run: |
           curl -fsSL https://deno.land/x/install/install.sh | sh
           echo "$HOME/.deno/bin" >> $GITHUB_PATH
 
-      # 2. Install FFmpeg (Required for combining video/audio)
       - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-      # 3. Install Python Dependencies
-      - name: Install Python Dependencies
-        run: pip install yt-dlp yt-dlp-ejs google-api-python-client google-auth-oauthlib google-auth-httplib2
+      - name: Install Dependencies
+        # --upgrade is critical to fix the "reload" error
+        run: pip install --upgrade yt-dlp yt-dlp-ejs google-api-python-client google-auth-oauthlib google-auth-httplib2
 
-      # 4. Run the Master Script with 3-Account Rotation
       - name: Run Autocloner
         env:
           C1_CLIENT_ID: ${{ secrets.C1_CLIENT_ID }}
           C1_CLIENT_SECRET: ${{ secrets.C1_CLIENT_SECRET }}
           C1_REFRESH_TOKEN: ${{ secrets.C1_REFRESH_TOKEN }}
-          
           C2_CLIENT_ID: ${{ secrets.C2_CLIENT_ID }}
           C2_CLIENT_SECRET: ${{ secrets.C2_CLIENT_SECRET }}
           C2_REFRESH_TOKEN: ${{ secrets.C2_REFRESH_TOKEN }}
-          
           C3_CLIENT_ID: ${{ secrets.C3_CLIENT_ID }}
           C3_CLIENT_SECRET: ${{ secrets.C3_CLIENT_SECRET }}
           C3_REFRESH_TOKEN: ${{ secrets.C3_REFRESH_TOKEN }}
-          
-          # 🧪 SET THIS TO TEST C2 OR C3
-          # Leave it blank '' to run normally (C1 -> C2 -> C3)
-          FORCE_ACCOUNT: ''
         run: python main.py
-        
-      - name: Save memory (Commit changes back to GitHub)
+
+      - name: Save memory
         run: |
           git config --global user.name "CloneBot-9000"
           git config --global user.email "bot@github.actions"
-          
-          # 1. Stage the new JSON files
           git add queues.json state.json uploaded.txt
-          
-          # 2. Check if there are changes to save
-          if git diff --staged --quiet; then
-            echo "No changes to save."
-          else
-            git commit -m "🤖 Auto-updated queues and round-robin state"
-            git reset --hard
-            git pull --rebase origin main
-            git push
-          fi  
-
+          git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Update Logs" && git pull --rebase origin main && git push)
