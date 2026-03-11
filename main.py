@@ -14,7 +14,11 @@ STATE_FILE = "state.json"
 UPLOADED_FILE = "uploaded.txt"
 COOKIES_FILE = "cookies.txt"
 
-# --- HELPERS ---
+# --- SETTINGS ---
+CATEGORY_ID = "24" # Entertainment
+LANGUAGE = "en"    # English
+MADE_FOR_KIDS = False
+
 def load_text_list(filepath):
     if not os.path.exists(filepath): return []
     with open(filepath, "r", encoding="utf-8") as f: return [line.strip() for line in f if line.strip()]
@@ -33,7 +37,6 @@ def save_json(filepath, data):
     with open(filepath, "w", encoding="utf-8") as f: json.dump(data, f, indent=2)
 
 def extract_video_id(url):
-    """Extracts ID from YouTube URL safely."""
     match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
     return match.group(1) if match else None
 
@@ -42,20 +45,17 @@ def get_auth_service(client_id, client_secret, refresh_token):
     return build('youtube', 'v3', credentials=creds)
 
 # ==========================================
-# 1. SMART SCANNER (Only scans config.txt)
+# 1. SCANNER
 # ==========================================
 def update_channel_queues(config_channels, uploaded_ids, all_queues):
-    # We only iterate through channels currently in config.txt
     for channel in config_channels:
         ydl_opts = {
             'extract_flat': True, 'quiet': True, 'cookiefile': COOKIES_FILE,
-            'extractor_args': {'youtube': {'player_client': ['tv']}}
+            'extractor_args': {'youtube': {'player_client': ['tv', 'web_creator', 'ios']}}
         }
         if channel not in all_queues:
             all_queues[channel] = []
-            print(f"\n🚨 NEW CHANNEL: {channel}")
         else:
-            print(f"\n⚡ SCANNING: {channel}")
             ydl_opts['playlistend'] = 15
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -65,32 +65,12 @@ def update_channel_queues(config_channels, uploaded_ids, all_queues):
                     fresh = [f"https://www.youtube.com/watch?v={e['id']}" for e in entries if e['id'] and e['id'] not in uploaded_ids and f"https://www.youtube.com/watch?v={e['id']}" not in all_queues[channel]]
                     if fresh:
                         all_queues[channel] = fresh + all_queues[channel]
-                        print(f"   -> Found {len(fresh)} new videos.")
-        except Exception as e: print(f"   ❌ Error scanning: {e}")
+                        print(f"Added {len(fresh)} videos to {channel}")
+        except Exception as e: print(f"Error scanning: {e}")
     return all_queues
 
 # ==========================================
-# 2. SMART DRAIN SELECTOR (Uses queues.json)
-# ==========================================
-def get_next_video_to_upload(all_queues, last_index):
-    """
-    Looks at ALL channels in the JSON (even if removed from config).
-    Provides a Round-Robin selection.
-    """
-    all_stored_channels = list(all_queues.keys())
-    total = len(all_stored_channels)
-    if total == 0: return None, None, last_index
-
-    start = (last_index + 1) % total
-    for i in range(total):
-        idx = (start + i) % total
-        channel_url = all_stored_channels[idx]
-        if len(all_queues[channel_url]) > 0:
-            return all_queues[channel_url][0], channel_url, idx
-    return None, None, last_index
-
-# ==========================================
-# 3. UPLOADER
+# 2. UPLOADER (ADVANCED METADATA)
 # ==========================================
 def attempt_upload(video_file, thumb_file, title, description):
     api_accounts = [
@@ -98,91 +78,107 @@ def attempt_upload(video_file, thumb_file, title, description):
         {'id': os.environ.get('C2_CLIENT_ID'), 'sec': os.environ.get('C2_CLIENT_SECRET'), 'tok': os.environ.get('C2_REFRESH_TOKEN'), 'name': 'C2'},
         {'id': os.environ.get('C3_CLIENT_ID'), 'sec': os.environ.get('C3_CLIENT_SECRET'), 'tok': os.environ.get('C3_REFRESH_TOKEN'), 'name': 'C3'}
     ]
-    request_body = {'snippet': {'title': title[:100], 'description': description[:5000], 'categoryId': '24'}, 'status': {'privacyStatus': 'public'}}
+    
+    # ADVANCED METADATA BODY
+    body = {
+        'snippet': {
+            'title': title[:100],
+            'description': description[:5000],
+            'categoryId': CATEGORY_ID,
+            'defaultLanguage': LANGUAGE,
+            'defaultAudioLanguage': LANGUAGE
+        },
+        'status': {
+            'privacyStatus': 'public',
+            'selfDeclaredMadeForKids': MADE_FOR_KIDS,
+            'license': 'youtube'
+        }
+    }
 
     for account in api_accounts:
         if not account['id']: continue
-        print(f"\n--- Checking Account: {account['name']} ---")
         try:
             youtube = get_auth_service(account['id'], account['sec'], account['tok'])
             media = MediaFileUpload(video_file, chunksize=-1, resumable=True)
-            request = youtube.videos().insert(part="snippet,status", body=request_body, media_body=media)
+            request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
             response = None
             while response is None:
                 status, response = request.next_chunk()
-                if status: print(f"   -> Progress: {int(status.progress() * 100)}%")
-            print(f"✅ SUCCESS! ID: {response['id']}")
+                if status: print(f"{account['name']} Progress: {int(status.progress() * 100)}%")
+            
+            vid_id = response['id']
             if os.path.exists(thumb_file):
-                try: youtube.thumbnails().set(videoId=response['id'], media_body=MediaFileUpload(thumb_file)).execute()
-                except: pass
+                youtube.thumbnails().set(videoId=vid_id, media_body=MediaFileUpload(thumb_file)).execute()
             return True 
         except HttpError as e:
             try: reason = json.loads(e.content.decode())['error']['errors'][0]['reason']
             except: reason = "unknown"
-            print(f"❌ API Error: {reason}")
             if reason in ["quotaExceeded", "dailyLimitExceeded", "invalid_grant"]: continue
             elif reason == "uploadLimitExceeded": return False 
             elif e.resp.status == 409: return True
-            else: continue
         except Exception: continue
     return False
 
 # ==========================================
-# 4. MAIN EXECUTION
+# 3. DOWNLOADER (RELOAD FIX)
 # ==========================================
+def download_video(url):
+    print(f"Downloading: {url}")
+    opts = {
+        'cookiefile': COOKIES_FILE,
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
+        # FIX: Try TV first, but fallback to IOS/Android to bypass "Page reload" error
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['tv', 'ios', 'android', 'web_creator'],
+                'player_skip': ['web', 'mweb']
+            }
+        },
+        'outtmpl': 'downloaded_video.%(ext)s',
+        'writethumbnail': True,
+        'postprocessors': [{'key': 'FFmpegThumbnailsConvertor', 'format': 'jpg'}],
+        'quiet': False,
+        'sleep_interval': 5,
+        'max_sleep_interval': 10
+    }
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            return "downloaded_video.mp4", "downloaded_video.jpg", info.get('title'), info.get('description'), info.get('id')
+    except Exception as e:
+        print(f"Download Error: {e}")
+        return None, None, None, None, None
+
 if __name__ == "__main__":
     config_channels = load_text_list(CONFIG_FILE)
     uploaded_ids = load_text_list(UPLOADED_FILE)
     all_queues = load_json(QUEUES_FILE, {})
     state = load_json(STATE_FILE, {"last_index": -1})
 
-    # 1. Update Queues (Only for channels in config.txt)
     if config_channels:
         all_queues = update_channel_queues(config_channels, uploaded_ids, all_queues)
         save_json(QUEUES_FILE, all_queues)
 
-    # 2. Infinite Selection Loop (To handle "Last-Second Check")
-    while True:
-        target_url, channel_owner, new_index = get_next_video_to_upload(all_queues, state['last_index'])
-        
-        if not target_url:
-            print("\n💤 All queues are empty.")
-            break
-
-        # --- LAST-SECOND CHECK ---
-        vid_id = extract_video_id(target_url)
-        if vid_id in uploaded_ids:
-            print(f"♻️ Skipping {vid_id}: Already found in uploaded.txt. Cleaning queue...")
-            all_queues[channel_owner].pop(0)
-            save_json(QUEUES_FILE, all_queues)
-            state['last_index'] = new_index # Move turn to next channel
-            continue # Try the next channel in the rotation
-        
-        # If we reach here, the video is truly new!
-        print(f"\n🎯 SELECTED: {target_url} from {channel_owner}")
-        
-        # 3. Download & Upload
-        opts = {
-            'cookiefile': COOKIES_FILE, 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
-            'extractor_args': {'youtube': {'player_client': ['tv']}}, 'outtmpl': 'downloaded_video.%(ext)s',
-            'writethumbnail': True, 'postprocessors': [{'key': 'FFmpegThumbnailsConvertor', 'format': 'jpg'}], 'quiet': False
-        }
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(target_url, download=True)
-                v_file, t_file, title, desc, orig_id = "downloaded_video.mp4", "downloaded_video.jpg", info.get('title'), info.get('description'), info.get('id')
-                
-                if attempt_upload(v_file, t_file, title, desc):
-                    all_queues[channel_owner].pop(0)
-                    uploaded_ids.append(orig_id)
-                    state['last_index'] = new_index
-                    save_json(QUEUES_FILE, all_queues); save_text_list(UPLOADED_FILE, uploaded_ids); save_json(STATE_FILE, state)
-                    print(f"🎉 SYSTEM FINISHED.")
-                else:
-                    print("❌ Upload failed.")
-                break # Exit the loop after trying 1 upload
-        except Exception as e:
-            print(f"❌ Process failed: {e}")
-            all_queues[channel_owner].pop(0)
-            save_json(QUEUES_FILE, all_queues)
-            break
+    all_stored_channels = list(all_queues.keys())
+    if not all_stored_channels: exit(0)
+    
+    start = (state['last_index'] + 1) % len(all_stored_channels)
+    for i in range(len(all_stored_channels)):
+        idx = (start + i) % len(all_stored_channels)
+        ch_url = all_stored_channels[idx]
+        if all_queues[ch_url]:
+            target = all_queues[ch_url][0]
+            if extract_video_id(target) in uploaded_ids:
+                all_queues[ch_url].pop(0)
+                continue
+            
+            v_file, t_file, title, desc, orig_id = download_video(target)
+            if v_file and attempt_upload(v_file, t_file, title, desc):
+                all_queues[ch_url].pop(0)
+                uploaded_ids.append(orig_id)
+                state['last_index'] = idx
+                save_json(QUEUES_FILE, all_queues); save_text_list(UPLOADED_FILE, uploaded_ids); save_json(STATE_FILE, state)
+                break
+            else:
+                all_queues[ch_url].pop(0) # Remove failed to avoid stuck queue
+                break
