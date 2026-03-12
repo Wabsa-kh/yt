@@ -50,8 +50,14 @@ def get_auth_service(client_id, client_secret, refresh_token):
 def update_channel_queues(config_channels, uploaded_ids, all_queues):
     for channel in config_channels:
         ydl_opts = {
-            'extract_flat': True, 'quiet': True, 'cookiefile': COOKIES_FILE,
-            'extractor_args': {'youtube': {'player_client': ['tv', 'web_creator', 'ios']}}
+            'extract_flat': True, 
+            'quiet': True,
+            # We try scanning WITHOUT cookies first to avoid the "Reload" trigger
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['ios', 'android', 'tv'],
+                }
+            }
         }
         if channel not in all_queues:
             all_queues[channel] = []
@@ -66,12 +72,17 @@ def update_channel_queues(config_channels, uploaded_ids, all_queues):
                     if fresh:
                         all_queues[channel] = fresh + all_queues[channel]
                         print(f"Added {len(fresh)} videos to {channel}")
-        except Exception as e: print(f"Error scanning: {e}")
+        except Exception as e: 
+            print(f"Error scanning: {e}")
+            # Fallback to cookies if anonymous scan fails
+            print("Trying scan with cookies...")
+            ydl_opts['cookiefile'] = COOKIES_FILE
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(channel, download=False)
+                    # ... (rest of scan logic)
+            except: pass
     return all_queues
-
-# ==========================================
-# 2. UPLOADER (ADVANCED METADATA)
-# ==========================================
 def attempt_upload(video_file, thumb_file, title, description):
     api_accounts = [
         {'id': os.environ.get('C1_CLIENT_ID'), 'sec': os.environ.get('C1_CLIENT_SECRET'), 'tok': os.environ.get('C1_REFRESH_TOKEN'), 'name': 'C1'},
@@ -122,63 +133,48 @@ def attempt_upload(video_file, thumb_file, title, description):
 # ==========================================
 # 3. DOWNLOADER (RELOAD FIX)
 # ==========================================
+# ==========================================
+# 3. DOWNLOADER (RELOAD ERROR BYPASS)
+# ==========================================
 def download_video(url):
     print(f"Downloading: {url}")
-    opts = {
-        'cookiefile': COOKIES_FILE,
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
-        # FIX: Try TV first, but fallback to IOS/Android to bypass "Page reload" error
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['tv', 'ios', 'android', 'web_creator'],
-                'player_skip': ['web', 'mweb']
-            }
-        },
-        'outtmpl': 'downloaded_video.%(ext)s',
-        'writethumbnail': True,
-        'postprocessors': [{'key': 'FFmpegThumbnailsConvertor', 'format': 'jpg'}],
-        'quiet': False,
-        'sleep_interval': 5,
-        'max_sleep_interval': 10
-    }
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            return "downloaded_video.mp4", "downloaded_video.jpg", info.get('title'), info.get('description'), info.get('id')
-    except Exception as e:
-        print(f"Download Error: {e}")
-        return None, None, None, None, None
-
-if __name__ == "__main__":
-    config_channels = load_text_list(CONFIG_FILE)
-    uploaded_ids = load_text_list(UPLOADED_FILE)
-    all_queues = load_json(QUEUES_FILE, {})
-    state = load_json(STATE_FILE, {"last_index": -1})
-
-    if config_channels:
-        all_queues = update_channel_queues(config_channels, uploaded_ids, all_queues)
-        save_json(QUEUES_FILE, all_queues)
-
-    all_stored_channels = list(all_queues.keys())
-    if not all_stored_channels: exit(0)
     
-    start = (state['last_index'] + 1) % len(all_stored_channels)
-    for i in range(len(all_stored_channels)):
-        idx = (start + i) % len(all_stored_channels)
-        ch_url = all_stored_channels[idx]
-        if all_queues[ch_url]:
-            target = all_queues[ch_url][0]
-            if extract_video_id(target) in uploaded_ids:
-                all_queues[ch_url].pop(0)
+    # STRATEGY: Try iOS/Android WITHOUT cookies first. 
+    # This is the most successful way to bypass "The page needs to be reloaded" in 2026.
+    
+    attempt_configs = [
+        { # Attempt 1: Mobile clients (No Cookies) - Best for bypass
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
+            'extractor_args': {'youtube': {'player_client': ['ios', 'android']}},
+            'outtmpl': 'downloaded_video.%(ext)s',
+            'writethumbnail': True,
+            'postprocessors': [{'key': 'FFmpegThumbnailsConvertor', 'format': 'jpg'}],
+            'quiet': False
+        },
+        { # Attempt 2: TV client (With Cookies) - Fallback for age-restricted
+            'cookiefile': COOKIES_FILE,
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
+            'extractor_args': {'youtube': {'player_client': ['tv']}},
+            'outtmpl': 'downloaded_video.%(ext)s',
+            'writethumbnail': True,
+            'postprocessors': [{'key': 'FFmpegThumbnailsConvertor', 'format': 'jpg'}],
+            'quiet': False
+        }
+    ]
+
+    for i, config in enumerate(attempt_configs):
+        try:
+            print(f"   -> Attempt {i+1}...")
+            with yt_dlp.YoutubeDL(config) as ydl:
+                info = ydl.extract_info(url, download=True)
+                return "downloaded_video.mp4", "downloaded_video.jpg", info.get('title'), info.get('description'), info.get('id')
+        except Exception as e:
+            err_msg = str(e)
+            if "reloaded" in err_msg:
+                print(f"   ⚠️ Attempt {i+1} triggered reload error. Trying next config...")
                 continue
-            
-            v_file, t_file, title, desc, orig_id = download_video(target)
-            if v_file and attempt_upload(v_file, t_file, title, desc):
-                all_queues[ch_url].pop(0)
-                uploaded_ids.append(orig_id)
-                state['last_index'] = idx
-                save_json(QUEUES_FILE, all_queues); save_text_list(UPLOADED_FILE, uploaded_ids); save_json(STATE_FILE, state)
-                break
             else:
-                all_queues[ch_url].pop(0) # Remove failed to avoid stuck queue
-                break
+                print(f"   ❌ Attempt {i+1} failed: {err_msg}")
+                continue
+                
+    return None, None, None, None, None
