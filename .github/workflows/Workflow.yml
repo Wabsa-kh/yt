@@ -55,5 +55,18 @@ jobs:
         run: |
           git config --global user.name "CloneBot-9000"
           git config --global user.email "bot@github.actions"
+          
+          # 1. Stage ONLY the memory files
           git add queues.json state.json uploaded.txt
-          git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Update Logs" && git pull --rebase origin main && git push)
+          
+          # 2. If there are changes to the memory files, commit them
+          if ! git diff --staged --quiet; then
+            git commit -m "🤖 Update Logs"
+          fi
+          
+          # 3. CRITICAL FIX: Discard all other changes (like cookies.txt updates or leftover videos)
+          git reset --hard
+          
+          # 4. Now it is 100% safe to pull and push!
+          git pull --rebase origin main
+          git pushpull --rebase origin main && git push)
