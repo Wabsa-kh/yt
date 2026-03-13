@@ -1,9 +1,9 @@
 name: Autonomous Clone Bot
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows you to run it manually
   schedule:
-    - cron: '0 */4 * * *'
+    - cron: '0 */4 * * *' # Runs automatically every 4 hours
 
 concurrency: 
   group: yt-uploader
@@ -13,60 +13,70 @@ jobs:
   run-bot:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # ⚠️ CRITICAL: Allows the bot to save files back to the repo
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # Get full history for smooth git syncing
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
+      # 1. Install Deno (Required for YouTube's anti-bot JS puzzles)
       - name: Install Deno
         run: |
           curl -fsSL https://deno.land/x/install/install.sh | sh
           echo "$HOME/.deno/bin" >> $GITHUB_PATH
 
+      # 2. Install FFmpeg (Required for combining video/audio)
       - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
+      # 3. Install Python Dependencies
       - name: Install Dependencies
-        # --upgrade is critical to fix the "reload" error
+        # --upgrade ensures we have the latest patch for YouTube blocks
         run: pip install --upgrade yt-dlp yt-dlp-ejs google-api-python-client google-auth-oauthlib google-auth-httplib2
 
+      # 4. Run the Master Script
       - name: Run Autocloner
         env:
           C1_CLIENT_ID: ${{ secrets.C1_CLIENT_ID }}
           C1_CLIENT_SECRET: ${{ secrets.C1_CLIENT_SECRET }}
           C1_REFRESH_TOKEN: ${{ secrets.C1_REFRESH_TOKEN }}
+          
           C2_CLIENT_ID: ${{ secrets.C2_CLIENT_ID }}
           C2_CLIENT_SECRET: ${{ secrets.C2_CLIENT_SECRET }}
           C2_REFRESH_TOKEN: ${{ secrets.C2_REFRESH_TOKEN }}
+          
           C3_CLIENT_ID: ${{ secrets.C3_CLIENT_ID }}
           C3_CLIENT_SECRET: ${{ secrets.C3_CLIENT_SECRET }}
           C3_REFRESH_TOKEN: ${{ secrets.C3_REFRESH_TOKEN }}
+          
+          # Leave this empty '' for normal rotation, or type 'C2' to test a specific account
+          FORCE_ACCOUNT: '' 
         run: python main.py
 
+      # 5. Save the Memory (Queue & History)
       - name: Save memory
         run: |
           git config --global user.name "CloneBot-9000"
           git config --global user.email "bot@github.actions"
           
-          # 1. Stage ONLY the memory files
+          # 1. Stage ONLY the specific memory files
           git add queues.json state.json uploaded.txt
           
-          # 2. If there are changes to the memory files, commit them
+          # 2. Check if there are changes to save
           if ! git diff --staged --quiet; then
             git commit -m "🤖 Update Logs"
           fi
           
-          # 3. CRITICAL FIX: Discard all other changes (like cookies.txt updates or leftover videos)
+          # 3. CRITICAL FIX: Discard all other changes (videos, cache, cookie updates)
           git reset --hard
           
-          # 4. Now it is 100% safe to pull and push!
+          # 4. Pull latest changes safely and push
           git pull --rebase origin main
-          git pushpull --rebase origin main && git push)
+          git push
