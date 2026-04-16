@@ -1,7 +1,9 @@
 {
   "https://www.youtube.com/@DojoAnimeTV": [],
-  "https://www.youtube.com/@aniroll9636": [],
-  
+  "https://www.youtube.com/@aniroll9636": [
+    "https://www.youtube.com/watch?v=UCuVDcQ4R905Brkms7jECcaQ",
+    "https://www.youtube.com/watch?v=UCuVDcQ4R905Brkms7jECcaQ"
+  ],
   "https://www.youtube.com/@Ani_Prestige": [
     "https://www.youtube.com/watch?v=qwC0l69C2_s",
     "https://www.youtube.com/watch?v=7i1-WHflSNk",
@@ -106,5 +108,13 @@
     "https://www.youtube.com/watch?v=ngSDA0UWzNA",
     "https://www.youtube.com/watch?v=tPd8k2RC038",
     "https://www.youtube.com/watch?v=rnLHhMOkKRU"
+  ],
+  "https://www.youtube.com/@AniQuestYT": [
+    "https://www.youtube.com/watch?v=UCsVQUczZwfREWD17VhmRGbQ",
+    "https://www.youtube.com/watch?v=UCsVQUczZwfREWD17VhmRGbQ"
+  ],
+  "https://www.youtube.com/@Recapkun": [
+    "https://www.youtube.com/watch?v=UCAzzAsXz3y8j9_PRredjLNQ",
+    "https://www.youtube.com/watch?v=UCAzzAsXz3y8j9_PRredjLNQ"
   ]
 }
