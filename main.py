@@ -39,7 +39,6 @@ def save_json(filepath, data):
 
 def extract_video_id(url):
     if not url: return None
-    # Matches standard URLs, Shorts, and mobile shares
     match = re.search(r"(?:v=|\/shorts\/|\/)([0-9A-Za-z_-]{11})", url)
     return match.group(1) if match else None
 
@@ -54,45 +53,61 @@ def get_auth_service(client_id, client_secret, refresh_token):
     return build('youtube', 'v3', credentials=creds)
 
 # ==========================================
-# 1. SMART SCANNER (FIXED)
+# 1. SMART SCANNER (FIXED FOR TABS)
 # ==========================================
 def update_channel_queues(config_channels, uploaded_ids, all_queues):
     for channel in config_channels:
+        # 'in_playlist' forces yt-dlp to open channel tabs and extract the actual videos
         ydl_opts = {
-            'extract_flat': True,
+            'extract_flat': 'in_playlist',
             'quiet': True,
             'extractor_args': {'youtube': {'player_client': ['ios', 'android', 'tv']}}
         }
         
         if channel not in all_queues:
             all_queues[channel] = []
-            print(f"\n🚨 NEW CHANNEL: {channel} -> Scanning ENTIRE history.")
+            print(f"\n🚨 NEW CHANNEL: {channel} -> Scanning ENTIRE history. This may take a minute...")
         else:
             print(f"\n⚡ SCANNING: {channel} -> Checking newest videos.")
-            ydl_opts['playlistend'] = 15
+            # This will check the top 15 Shorts and top 15 Longs
+            ydl_opts['playlistend'] = 15 
             
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(channel, download=False)
-                if 'entries' in info:
-                    fresh = []
-                    for entry in info['entries']:
-                        if entry and entry.get('id'):
-                            v_id = entry['id']
-                            v_url = f"https://www.youtube.com/watch?v={v_id}"
-                            
-                            # Only add if not already uploaded and not already in current queue
-                            if v_id not in uploaded_ids and v_url not in all_queues[channel]:
-                                fresh.append(v_url)
-                    
-                    if fresh:
-                        # Add new videos to the top of the queue
-                        all_queues[channel] = fresh + all_queues[channel]
-                        print(f"   -> Added {len(fresh)} new videos.")
+                
+                # Recursive function to dig through tabs/playlists and find TRUE video IDs
+                def get_video_ids(data):
+                    vids = []
+                    if not data: return vids
+                    if 'entries' in data:
+                        for e in data['entries']:
+                            vids.extend(get_video_ids(e))
                     else:
-                        print("   -> No new videos found.")
+                        v_id = data.get('id')
+                        # ALL genuine YouTube video IDs are EXACTLY 11 characters long. 
+                        # This ignores channel/playlist IDs (which are longer).
+                        if v_id and isinstance(v_id, str) and len(v_id) == 11 and " " not in v_id:
+                            vids.append(v_id)
+                    return vids
+
+                video_ids = get_video_ids(info)
+                
+                fresh = []
+                for v_id in video_ids:
+                    v_url = f"https://www.youtube.com/watch?v={v_id}"
+                    
+                    if v_id not in uploaded_ids and v_url not in all_queues[channel] and v_url not in fresh:
+                        fresh.append(v_url)
+                
+                if fresh:
+                    all_queues[channel] = fresh + all_queues[channel]
+                    print(f"   -> Added {len(fresh)} new valid videos.")
+                else:
+                    print("   -> No new videos found.")
         except Exception as e:
-            print(f"   ❌ Scan failed: {e}")
+            print(f"   ❌ Scan failed for {channel}: {e}")
+            
     return all_queues
 
 # ==========================================
@@ -117,7 +132,6 @@ def get_next_video_to_upload(all_queues, last_index):
 def download_video(url):
     print(f"\n--- DOWNLOADING: {url} ---")
     
-    # Sequential strategies to bypass bot detection
     attempt_configs = [
         { 'extractor_args': {'youtube': {'player_client': ['ios', 'android']}} },
         { 'cookiefile': COOKIES_FILE, 'extractor_args': {'youtube': {'player_client': ['tv']}} },
@@ -209,12 +223,10 @@ if __name__ == "__main__":
     all_queues = load_json(QUEUES_FILE, {})
     state = load_json(STATE_FILE, {"last_index": -1})
 
-    # 1. Update scanning queue
     if config_channels:
         all_queues = update_channel_queues(config_channels, uploaded_ids, all_queues)
         save_json(QUEUES_FILE, all_queues)
 
-    # 2. Try to process one video
     while True:
         target_url, channel_owner, new_index = get_next_video_to_upload(all_queues, state['last_index'])
         
@@ -234,7 +246,6 @@ if __name__ == "__main__":
         
         if v_file and orig_id:
             if attempt_upload(v_file, t_file, title, desc):
-                # Clean up after successful upload
                 all_queues[channel_owner].pop(0)
                 uploaded_ids.append(orig_id)
                 state['last_index'] = new_index
@@ -248,4 +259,4 @@ if __name__ == "__main__":
         else:
             print("❌ Download failed. Video kept in queue.")
             
-        break # Process 1 video per run
+        break
