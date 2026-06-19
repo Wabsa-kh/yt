@@ -53,11 +53,10 @@ def get_auth_service(client_id, client_secret, refresh_token):
     return build('youtube', 'v3', credentials=creds)
 
 # ==========================================
-# 1. SMART SCANNER (FIXED FOR TABS)
+# 1. SMART SCANNER
 # ==========================================
 def update_channel_queues(config_channels, uploaded_ids, all_queues):
     for channel in config_channels:
-        # 'in_playlist' forces yt-dlp to open channel tabs and extract the actual videos
         ydl_opts = {
             'extract_flat': 'in_playlist',
             'quiet': True,
@@ -66,45 +65,36 @@ def update_channel_queues(config_channels, uploaded_ids, all_queues):
         
         if channel not in all_queues:
             all_queues[channel] = []
-            print(f"\n🚨 NEW CHANNEL: {channel} -> Scanning ENTIRE history. This may take a minute...")
+            print(f"\n🚨 NEW CHANNEL: {channel} -> Scanning ENTIRE history.")
         else:
             print(f"\n⚡ SCANNING: {channel} -> Checking newest videos.")
-            # This will check the top 15 Shorts and top 15 Longs
             ydl_opts['playlistend'] = 15 
             
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(channel, download=False)
                 
-                # Recursive function to dig through tabs/playlists and find TRUE video IDs
                 def get_video_ids(data):
                     vids = []
                     if not data: return vids
                     if 'entries' in data:
-                        for e in data['entries']:
-                            vids.extend(get_video_ids(e))
+                        for e in data['entries']: vids.extend(get_video_ids(e))
                     else:
                         v_id = data.get('id')
-                        # ALL genuine YouTube video IDs are EXACTLY 11 characters long. 
-                        # This ignores channel/playlist IDs (which are longer).
-                        if v_id and isinstance(v_id, str) and len(v_id) == 11 and " " not in v_id:
+                        if v_id and isinstance(v_id, str) and len(v_id) == 11:
                             vids.append(v_id)
                     return vids
 
                 video_ids = get_video_ids(info)
-                
                 fresh = []
                 for v_id in video_ids:
                     v_url = f"https://www.youtube.com/watch?v={v_id}"
-                    
                     if v_id not in uploaded_ids and v_url not in all_queues[channel] and v_url not in fresh:
                         fresh.append(v_url)
                 
                 if fresh:
                     all_queues[channel] = fresh + all_queues[channel]
                     print(f"   -> Added {len(fresh)} new valid videos.")
-                else:
-                    print("   -> No new videos found.")
         except Exception as e:
             print(f"   ❌ Scan failed for {channel}: {e}")
             
@@ -127,11 +117,12 @@ def get_next_video_to_upload(all_queues, last_index):
     return None, None, last_index
 
 # ==========================================
-# 3. DOWNLOADER
+# 3. DOWNLOADER (WITH ERROR DETECTION)
 # ==========================================
 def download_video(url):
     print(f"\n--- DOWNLOADING: {url} ---")
     
+    last_error = ""
     attempt_configs = [
         { 'extractor_args': {'youtube': {'player_client': ['ios', 'android']}} },
         { 'cookiefile': COOKIES_FILE, 'extractor_args': {'youtube': {'player_client': ['tv']}} },
@@ -144,22 +135,26 @@ def download_video(url):
             'outtmpl': 'downloaded_video.%(ext)s',
             'writethumbnail': True,
             'postprocessors': [{'key': 'FFmpegThumbnailsConvertor', 'format': 'jpg'}],
-            'quiet': False,
+            'quiet': True,
             'overwrites': True
         }
         base_opts.update(extra_opts)
 
-        print(f"   -> Strategy {i+1}...")
         try:
             with yt_dlp.YoutubeDL(base_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
-                return ("downloaded_video.mp4", "downloaded_video.jpg", 
+                return "SUCCESS", ("downloaded_video.mp4", "downloaded_video.jpg", 
                         info.get('title', 'Video'), info.get('description', ''), info.get('id'))
         except Exception as e:
-            print(f"   ⚠️ Strategy {i+1} failed: {e}")
+            last_error = str(e).lower()
+            print(f"   ⚠️ Strategy {i+1} failed: {last_error[:100]}...")
             continue
     
-    return None, None, None, None, None
+    # Analyze why it failed after all strategies
+    if any(x in last_error for x in ["unavailable", "private", "deleted", "removed", "copyright"]):
+        return "PERMANENT_FAIL", None
+    else:
+        return "TRANSIENT_FAIL", None
 
 # ==========================================
 # 4. UPLOADER
@@ -172,17 +167,13 @@ def attempt_upload(video_file, thumb_file, title, description):
     ]
     
     accounts_to_try = [acc for acc in api_accounts if acc['id'] and acc['sec'] and acc['tok']]
-
     body = {
-        'snippet': {
-            'title': title[:100], 'description': description[:5000],
-            'categoryId': CATEGORY_ID, 'defaultLanguage': LANGUAGE
-        },
+        'snippet': {'title': title[:100], 'description': description[:5000], 'categoryId': CATEGORY_ID, 'defaultLanguage': LANGUAGE},
         'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': MADE_FOR_KIDS}
     }
 
     for account in accounts_to_try:
-        print(f"\n--- Checking Account: {account['name']} ---")
+        print(f"   -> Trying Account: {account['name']}...")
         try:
             youtube = get_auth_service(account['id'], account['sec'], account['tok'])
             media = MediaFileUpload(video_file, chunksize=-1, resumable=True)
@@ -191,27 +182,17 @@ def attempt_upload(video_file, thumb_file, title, description):
             response = None
             while response is None:
                 status, response = request.next_chunk()
-                if status: print(f"   -> Progress: {int(status.progress() * 100)}%")
-                    
-            vid_id = response['id']
-            print(f"✅ SUCCESS! {account['name']} uploaded ID: {vid_id}")
             
+            vid_id = response['id']
+            print(f"✅ SUCCESS! Uploaded ID: {vid_id}")
             if os.path.exists(thumb_file):
-                try:
-                    youtube.thumbnails().set(videoId=vid_id, media_body=MediaFileUpload(thumb_file)).execute()
-                    print("   -> Thumbnail Attached!")
-                except: print("   -> Thumbnail failed.")
+                try: youtube.thumbnails().set(videoId=vid_id, media_body=MediaFileUpload(thumb_file)).execute()
+                except: pass
             return True 
-
         except HttpError as e:
-            err_msg = str(e)
-            print(f"❌ API Error on {account['name']}: {err_msg}")
-            if "quotaExceeded" in err_msg or "rateLimitExceeded" in err_msg: continue
-            else: return False
-        except Exception as e:
-            print(f"❌ System Error: {e}")
-            continue
-
+            if "quotaExceeded" in str(e): continue
+            return False
+        except: continue
     return False
 
 # ==========================================
@@ -227,6 +208,7 @@ if __name__ == "__main__":
         all_queues = update_channel_queues(config_channels, uploaded_ids, all_queues)
         save_json(QUEUES_FILE, all_queues)
 
+    # Loop until we successfully upload ONE video or run out of things to try
     while True:
         target_url, channel_owner, new_index = get_next_video_to_upload(all_queues, state['last_index'])
         
@@ -236,27 +218,46 @@ if __name__ == "__main__":
 
         vid_id = extract_video_id(target_url)
         if vid_id in uploaded_ids:
-            print(f"♻️ Skipping {vid_id}: Already uploaded.")
             all_queues[channel_owner].pop(0)
             save_json(QUEUES_FILE, all_queues)
-            state['last_index'] = new_index
             continue 
         
-        v_file, t_file, title, desc, orig_id = download_video(target_url)
+        status, data = download_video(target_url)
         
-        if v_file and orig_id:
+        if status == "SUCCESS":
+            v_file, t_file, title, desc, orig_id = data
             if attempt_upload(v_file, t_file, title, desc):
+                # SUCCESS: Remove from queue and mark as uploaded
                 all_queues[channel_owner].pop(0)
                 uploaded_ids.append(orig_id)
                 state['last_index'] = new_index
-                
                 save_json(QUEUES_FILE, all_queues)
                 save_text_list(UPLOADED_FILE, uploaded_ids)
                 save_json(STATE_FILE, state)
-                print(f"🎉 TASK COMPLETE.")
+                print("🎉 TASK COMPLETE.")
+                break # Exit after one successful upload
             else:
-                print("❌ Upload failed. Video kept in queue.")
-        else:
-            print("❌ Download failed. Video kept in queue.")
-            
-        break
+                # UPLOAD FAIL: Keep at top but try next channel next time
+                print("❌ Upload failed. Video kept in queue for next run.")
+                state['last_index'] = new_index
+                save_json(STATE_FILE, state)
+                break 
+
+        elif status == "PERMANENT_FAIL":
+            # REMOVE: Video is gone from YouTube
+            print(f"🗑️ Video unavailable/private. Removing from queue: {target_url}")
+            all_queues[channel_owner].pop(0)
+            save_json(QUEUES_FILE, all_queues)
+            # Don't break, continue loop to try the next video
+            continue
+
+        elif status == "TRANSIENT_FAIL":
+            # MOVE TO BOTTOM: Network error or temporary block
+            print(f"🔄 Download error (Transient). Moving to bottom of {channel_owner} queue.")
+            url_to_move = all_queues[channel_owner].pop(0)
+            all_queues[channel_owner].append(url_to_move)
+            save_json(QUEUES_FILE, all_queues)
+            state['last_index'] = new_index
+            save_json(STATE_FILE, state)
+            # Don't break, continue loop to try the next video
+            continue
