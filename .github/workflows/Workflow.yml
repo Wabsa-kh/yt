@@ -3,7 +3,7 @@ name: Autonomous Clone Bot
 on:
   workflow_dispatch: # Allows you to run it manually
   schedule:
-    - cron: '0 */3 * * *' # Runs automatically every 4 hours
+    - cron: '0 */8 * * *' # Runs automatically every 4 hours
 
 concurrency: 
   group: yt-uploader
