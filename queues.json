@@ -1,6 +1,15 @@
 {
   "https://www.youtube.com/@Ani_Prestige": [],
-  "https://www.youtube.com/@aniroll9636": [],
-  "https://www.youtube.com/@AniQuestYT": [],
-  "https://www.youtube.com/@Recapkun": []
+  "https://www.youtube.com/@aniroll9636": [
+    "https://www.youtube.com/watch?v=dMGh3ZMJ3oI"
+  ],
+  "https://www.youtube.com/@AniQuestYT": [
+    "https://www.youtube.com/watch?v=CkryQCUKeVk",
+    "https://www.youtube.com/watch?v=g4i6MQH4qZw",
+    "https://www.youtube.com/watch?v=yhRUEd5idu4"
+  ],
+  "https://www.youtube.com/@Recapkun": [
+    "https://www.youtube.com/watch?v=QO_XsYrRQro",
+    "https://www.youtube.com/watch?v=gUHrPvupM8U"
+  ]
 }
